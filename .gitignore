@@ -1,6 +1,10 @@
 .DS_Store
-__pycache__/*
+*__/*
 *.pyc
 *.epub
+*.zip
+dist/*
+build/*
+*.egg*
 
 book.json

@@ -1,11 +1,11 @@
 import argparse
 import re
 
-from src.util import Log
+from wte.src.util import Log
 
 # ========== create_book ==========
 
-import src
+import wte.src as src
 
 URL_MATCHS = {
     "^(https?://)?(www\\.)?wattpad\\.com/.+$": src.wattpad,

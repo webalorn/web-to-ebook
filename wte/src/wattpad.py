@@ -6,11 +6,6 @@ import requests
 from .ebook import Book
 from .util import RequestError, Log, fetch_html
 
-# Pyquery or beautiful soup ?
-# TODO : extract main image ; metadata ; images in text ? Lists ?
-# TODO : extract unique identifier
-# TODO : keywords
-# image_url_to_file
 
 WATTPAD_BASE = "https://www.wattpad.com"
 
