@@ -6,28 +6,18 @@ import os
 from ebooklib import epub
 
 from .util import Log, do_hash, downoad_image, format_filename
+from .util import ImageData, TmpImageData
 
 
 class Chapter:
     def __init__(self, title='', content=''):
         self.title = title
         self.content = content
-
-    @classmethod
-    def from_json(cls, data):
-        chap = cls()
-        chap.title = data['title']
-        chap.content = data['content']
-        return chap
-
-    def to_json(self):
-        return {
-            'title': self.title,
-            'content': self.content,
-        }
+        self.filename = None
 
     def get_filename(self):
-        return 'index_' + do_hash(self.title) + '.xhtml'
+        name = str(self.filename or do_hash(self.title))
+        return 'index_' + name + '.xhtml'
 
     def get_real_content(self):
         return (f'<h2>{self.title}</h2>'
@@ -44,7 +34,8 @@ class Chapter:
 
 
 class FrontPageChapter(Chapter):
-    def __init__(self, title='', content='', tags=[], author=None, source=None):
+    def __init__(self, title='', content='', tags=[], author=None, source=None,
+                 date=True, status=None):
         self.title = title
         parts = []
 
@@ -54,6 +45,13 @@ class FrontPageChapter(Chapter):
             parts.append(('Author', author))
         if source:
             parts.append(('From', source))
+        if status:
+            parts.append(('Status', status))
+        if date:
+            if date is True:
+                now = datetime.date.today()
+                date = now.strftime("%d/%m/%Y")
+            parts.append(('Date', date))
         parts = [f'<li><strong>{a}:<strong> {b}\n' for a, b in parts]
 
         content = content.replace("\n", "<br/>")
@@ -73,11 +71,12 @@ class FrontPageChapter(Chapter):
 
 
 class Book:
-    def __init__(self, title='', identifier=None, cover=None, author=None,
+    def __init__(self, title='', identifier=None, cover=None, author=None, status=None,
                  source=None, lang='en', description=None, date=None, tags=[]):
         self.title = title
         self.chapters = []
-        self.cover = cover
+        self._cover = None
+        self.set_cover(cover)
         self.author = author
         self.source = source
         self.identifier = identifier
@@ -85,37 +84,25 @@ class Book:
         self.description = description
         self.date = date
         self.tags = tags
+        self.images = []
+        self.status = status
 
         if not self.date:
             now = datetime.date.today()
             self.date = now.strftime("%Y-%m-%d")
 
-    @classmethod
-    def from_json(cls, data):
-        book = cls()
-        book.title = data['title']
-        book.cover = data['cover']
-        book.author = data['author']
-        book.source = data['source']
-        book.chapters = [Chapter.from_json(c) for c in data['chapters']]
-        return book
-
     def add_chapter(self, *kargs, **kwargs):
         self.chapters.append(Chapter(*kargs, **kwargs))
 
     def cover_from_url(self, url):
-        self.cover = None
+        self._cover = None
         if url is not None:
-            self.cover = downoad_image(url)
+            self._cover = TmpImageData(downoad_image(url), 'cover')
 
-    def to_json(self):
-        return {
-            'title': self.title,
-            'cover': self.cover,
-            'author': self.author,
-            'source': self.source,
-            'chapters': [c.to_json() for c in self.chapters]
-        }
+    def set_cover(self, path):
+        self._cover = None
+        if path is not None:
+            self._cover = ImageData(path, 'cover')
 
     def epub_name(self):
         title = self.title.replace("'", " ").lower()
@@ -134,7 +121,8 @@ class Book:
             content=self.description,
             tags=self.tags,
             author=self.author,
-            source=self.source
+            source=self.source,
+            status=self.status,
         )
 
     def to_epub(self, dest_path=None):
@@ -159,17 +147,19 @@ class Book:
         if self.source:
             ef.add_metadata('DC', 'publisher', self.source)
 
-        # Cover
-        if self.cover:
-            image_path = self.cover if isinstance(
-                self.cover, str) else self.cover.name
-            image_name = 'cover.' + imghdr.what(image_path)
-            im = open(image_path, 'rb').read()
-            ef.set_cover(image_name, im, True)
+        # Cover and image
+        if self._cover:
+            im = self._cover.read()
+            ef.set_cover(self._cover.epub_location(), im, True)
+
+        for img in self.images:
+            ef.add_item(img.to_epub())
 
         # Create chapters
         book_parts = []
         chapters = self.chapters
+        for i_chap, chap in enumerate(self.chapters):
+            chap.filename = f'chapter_{i_chap+1}'
 
         front_page = self.get_front_page()
         if front_page:
@@ -186,6 +176,8 @@ class Book:
         ef.add_item(epub.EpubNcx())
         ef.add_item(epub.EpubNav())
 
+        # Write the ebook
+
         if dest_path is not None:
             dest_path = str(dest_path)
             if os.path.exists(dest_path):
@@ -199,17 +191,3 @@ class Book:
                     f"The file {dest_path} has been successfully written")
 
         return ef
-
-
-if __name__ == "__main__":
-    data = json.load(open('book.json', 'r'))
-    book = Book.from_json(data)
-    book.cover_from_url("https://a.wattpad.com/cover/96907097-512-k463519.jpg")
-    book.tags = ['tag1', 'tag2', 'tag3', 'tag4', 'tag5']
-    book.description = """There are many gods bound to Shalara's care. Some are good; others bad. But none are as feared or reviled as Katastarof, Lord of Calamity and Destruction.
-    
-    Eons ago, the Pantheon locked the destruction deity away, binding his tomb with several Keys. These Keys were then scattered across the world, to hopefully never see the light of day again."""
-
-    ef = book.to_epub('test.epub')
-
-    print(book.epub_name())

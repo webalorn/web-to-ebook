@@ -2,8 +2,11 @@ import shutil
 import requests
 import tempfile
 import string
+import imghdr
+import random
 
 from pyquery import PyQuery as pq
+from ebooklib import epub
 
 
 class RequestError(Exception):
@@ -12,6 +15,45 @@ class RequestError(Exception):
             f'{message} [Status: {req.status_code} because {req.reason}, url: {req.url}]')
         self.message = message
         self.req = req
+
+# ========== Images wraper =========
+
+
+class ImageData:
+    def __init__(self, path, uid=None):
+        self.path = path
+        if uid is not None:
+            self.uid = str(uid)
+        else:
+            self.uid = str(random.randint(1, 10 ** 9))
+
+    def extension(self):
+        return imghdr.what(self.hd_location())
+
+    def epub_location(self):
+        return f'images/{self.uid}.{self.extension()}'
+
+    def hd_location(self):
+        return self.path
+
+    def read(self):
+        with open(self.hd_location(), 'rb') as f:
+            return f.read()
+
+    def to_epub(self):
+        return epub.EpubItem(
+            uid=self.uid,
+            file_name=self.epub_location(),
+            content=self.read(),
+        )
+
+
+class TmpImageData(ImageData):
+    def __init__(self, file, uid=None):
+        self.file = file
+        super().__init__(file.name, uid)
+
+# ========== Utility functions =========
 
 
 def do_hash(element):
@@ -40,6 +82,16 @@ def format_filename(s):
     valid_chars = f"-_{string.ascii_letters}{string.digits}"
     filename = ''.join(c for c in s if c > 'z' or c in valid_chars)
     return filename
+
+
+def post_process_html(content, book):
+    imgs = content.find('img')
+    for img in imgs:
+        url = img.get('src')
+        imgdata = TmpImageData(downoad_image(url), len(book.images))
+        book.images.append(imgdata)
+        img.set('src', imgdata.epub_location())
+    return content
 
 # ========== LOGGER ==========
 
@@ -90,7 +142,7 @@ class Log:
     def confirm(cls, message, default=False):
         if cls.silent:
             return default
-        message += ' [y/n]'
+        message += ' [y/n] '
         while True:
             ans = cls.input(message).strip().lower()
             if ans in ['y', 'yes', '1', 'true']:
